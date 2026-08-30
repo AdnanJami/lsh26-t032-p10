@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="./tariffs.js" defer></script>
+    <!-- 
+      EXPLANATION OF THE CODE:
+      This file implements the Prepaid Meter Recharge Advisor using a strictly enforced Model-View-Controller (MVC) pattern.
+      
+      - Model (MeterModel): Contains the dataset (mocking the database), tariff constants, and all mathematical logic. 
+        It strictly enforces the rule that slabs reset on the 1st of the month, and fixed charges apply only on the 
+        first recharge of a month.
+      - View (MeterView): Responsible for all UI updates, handling DOM elements, and rendering the Chart.js line graph.
+      - Controller (MeterController): Orchestrates the application, binding inputs from the View to actions in the Model, 
+        and updating the View with the results.
+        
+      The app automatically generates 6 months of daily data to satisfy the required scenarios (light month, heavy summer, late recharge).
+    -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prepaid Meter Recharge Advisor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
+        .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <header class="mb-8 text-center sm:text-left flex flex-col sm:flex-row justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold text-blue-900"><i class="fas fa-bolt text-yellow-500 mr-2"></i> Dhaka Prepaid Meter Advisor</h1>
+                <p class="text-gray-600 mt-1">Track balance, predict run-out dates, and optimize your recharge habits.</p>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Left Column: Controls and Analysis -->
+            <div class="space-y-6 lg:col-span-1">
+                
+                <!-- Status Card -->
+                <div class="glass-panel rounded-xl shadow-sm p-6 border-t-4 border-blue-500">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700">Current Meter Status</h2>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-gray-50 p-3 rounded-lg text-center">
+                            <p class="text-xs text-gray-500 font-bold uppercase">Balance</p>
+                            <p class="text-2xl font-bold text-blue-700" id="current-balance">0 ৳</p>
+                        </div>
+                        <div class="bg-gray-50 p-3 rounded-lg text-center">
+                            <p class="text-xs text-gray-500 font-bold uppercase">Month Units</p>
+                            <p class="text-2xl font-bold text-orange-500" id="current-month-units">0</p>
+                        </div>
+                    </div>
+                    <div id="slab-warning" class="mt-4 p-3 rounded-md text-sm hidden">
+                        <!-- Slab warning injected here -->
+                    </div>
+                </div>
+
+                <!-- Q1: Prediction -->
+                <div class="glass-panel rounded-xl shadow-sm p-6">
+                    <h2 class="text-lg font-semibold mb-3 text-gray-700"><i class="fas fa-hourglass-half text-blue-500 mr-2"></i> Run-out Prediction</h2>
+                    <p class="text-sm text-gray-600 mb-2">Based on your recent average daily use of <span id="avg-daily-use" class="font-bold text-black">0</span> units.</p>
+                    <div class="bg-red-50 text-red-700 p-3 rounded-lg flex items-center">
+                        <i class="fas fa-calendar-times text-2xl mr-3"></i>
+                        <div>
+                            <p class="text-xs font-bold uppercase">Balance Depletes On</p>
+                            <p class="text-lg font-bold" id="runout-date">Calculating...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Q2: Target Date Recharge -->
+                <div class="glass-panel rounded-xl shadow-sm p-6">
+                    <h2 class="text-lg font-semibold mb-3 text-gray-700"><i class="fas fa-bullseye text-green-500 mr-2"></i> Plan a Recharge</h2>
+                    <p class="text-sm text-gray-600 mb-3">How much to recharge today to last until a specific date?</p>
+                    <input type="date" id="target-date-input" class="w-full border-gray-300 rounded-md shadow-sm p-2 mb-3 border focus:ring-blue-500 focus:border-blue-500">
+                    <button id="btn-calculate-target" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition">Calculate Requirement</button>
+                    
+                    <div id="target-result-box" class="mt-4 hidden bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <p class="text-sm text-gray-500 mb-1">Required Recharge Amount:</p>
+                        <p class="text-2xl font-bold text-green-600 mb-3" id="target-total">0 ৳</p>
+                        <p class="text-xs font-bold text-gray-400 uppercase mb-2">Cost Breakdown</p>
+                        <ul class="text-sm text-gray-600 space-y-1">
+                            <li class="flex justify-between"><span>Base Energy:</span> <span id="target-energy">0 ৳</span></li>
+                            <li class="flex justify-between text-orange-600"><span>Higher Slab Penalty:</span> <span id="target-penalty">0 ৳</span></li>
+                            <li class="flex justify-between"><span>VAT (5%):</span> <span id="target-vat">0 ৳</span></li>
+                            <li class="flex justify-between text-red-500"><span>Fixed Charges:</span> <span id="target-fixed">0 ৳</span></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Bonus: Bill Breakdown -->
+                <div class="glass-panel rounded-xl shadow-sm p-6">
+                    <h2 class="text-lg font-semibold mb-3 text-gray-700"><i class="fas fa-receipt text-purple-500 mr-2"></i> Monthly Bill Breakdown</h2>
+                    <select id="bill-month-select" class="w-full border-gray-300 rounded-md shadow-sm p-2 mb-3 border"></select>
+                    <div id="bill-breakdown-box" class="bg-gray-50 p-3 rounded-lg text-sm hidden space-y-2">
+                        <div class="flex justify-between font-bold border-b pb-1"><span>Total Cost:</span> <span id="bill-total">0</span></div>
+                        <div class="flex justify-between"><span>Energy:</span> <span id="bill-energy">0</span></div>
+                        <div class="flex justify-between"><span>VAT:</span> <span id="bill-vat">0</span></div>
+                        <div class="flex justify-between"><span>Demand Charge:</span> <span id="bill-demand">0</span></div>
+                        <div class="flex justify-between"><span>Meter Rent:</span> <span id="bill-rent">0</span></div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right Column: Chart and Comparison -->
+            <div class="lg:col-span-2 space-y-6">
+                
+                <!-- Chart Area -->
+                <div class="glass-panel rounded-xl shadow-sm p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700">6-Month Balance History</h2>
+                    <div class="relative h-80 w-full">
+                        <canvas id="balanceChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Habit Comparison -->
+                <div class="glass-panel rounded-xl shadow-sm p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700"><i class="fas fa-balance-scale text-indigo-500 mr-2"></i> Habit Comparison</h2>
+                    <p class="text-sm text-gray-600 mb-4">Comparing identical consumption over 3 months. <br><b>Habit A:</b> Recharge 1500৳ when balance falls below 100৳.<br><b>Habit B:</b> Recharge 1500৳ on the 1st of every month.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                            <h3 class="font-bold text-indigo-800 border-b border-indigo-200 pb-2 mb-2">Habit A (Low Balance)</h3>
+                            <p class="text-sm text-gray-700">Total Consumed Cost:</p>
+                            <p class="text-2xl font-bold text-indigo-600" id="habit-a-cost">0 ৳</p>
+                        </div>
+                        <div class="bg-teal-50 p-4 rounded-lg border border-teal-100">
+                            <h3 class="font-bold text-teal-800 border-b border-teal-200 pb-2 mb-2">Habit B (Monthly 1st)</h3>
+                            <p class="text-sm text-gray-700">Total Consumed Cost:</p>
+                            <p class="text-2xl font-bold text-teal-600" id="habit-b-cost">0 ৳</p>
+                        </div>
+                    </div>
+                    <div id="habit-conclusion" class="p-3 bg-gray-800 text-white rounded-md text-sm">
+                        <!-- Conclusion injected here -->
+                    </div>
+                </div>
+
+                <!-- Bonus: Custom Data -->
+                <div class="glass-panel rounded-xl shadow-sm p-6">
+                    <h2 class="text-lg font-semibold mb-3 text-gray-700"><i class="fas fa-file-csv text-green-600 mr-2"></i> Paste Real Data (Bonus)</h2>
+                    <p class="text-xs text-gray-500 mb-2">Format: YYYY-MM-DD, Units, RechargeAmount (One per line)</p>
+                    <textarea id="custom-data-input" rows="4" class="w-full border p-2 rounded text-sm font-mono custom-scrollbar" placeholder="2023-01-01, 5.2, 0&#10;2023-01-02, 6.1, 1000"></textarea>
+                    <button id="btn-load-custom" class="mt-2 bg-gray-800 hover:bg-gray-900 text-white text-sm font-bold py-1 px-3 rounded">Simulate Custom Data</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    
+</body>
+</html>
