@@ -4,9 +4,9 @@ Solution for **LofiStack Hackathon 2026 — P##**
 
 ## Project information
 
-- **Team:** `<TEAM NAME>`
-- **Team ID:** `LSH26-T###`
-- **Problem:** `P## — <PROBLEM TITLE>`
+- **Team:** `Larpcoder`
+- **Team ID:** `LSH26-T032`
+- **Problem:** `P10 — Prepaid Meter Recharge Advisor`
 - **Live application:** <https://example.com>
 - **Demo video:** Optional link, maximum three minutes
 

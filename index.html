@@ -1,0 +1,1363 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prepaid Meter Recharge Advisor</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for Meter Balance Visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        emerald: {
+                            50: '#ecfdf5',
+                            100: '#d1fae5',
+                            500: '#10b981',
+                            600: '#059669',
+                            700: '#047857',
+                        },
+                        amber: {
+                            500: '#f59e0b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="h-full text-slate-800 antialiased font-sans">
+
+    <!-- 
+    ================================================================================
+    PREPAID METER RECHARGE ADVISOR - ARCHITECTURE & CODE EXPLANATION
+    ================================================================================
+    Architectural Pattern: Model-View-Controller (MVC)
+    
+    1. MODEL (MeterModel & TariffEngine):
+       - Implements the exact tariff slab structure (Slabs 1-6: 4.63 to 10.70 BDT/unit).
+       - Enforces strict calendar month slab counter resets (resets on day 1 of each month).
+       - Handles fixed charges (Demand Charge 42 BDT + Meter Rent 40 BDT = 82 BDT) 
+         deducted strictly on the FIRST recharge of each calendar month.
+       - Adds 5% VAT on the total energy amount.
+       - Rebuilds daily meter balance histories, forecasts depletion dates, calculates 
+         target-date recharge breakdowns, and compares low-balance vs monthly habits.
+
+    2. VIEW (UI System):
+       - Responsive dashboard built with Tailwind CSS.
+       - Interactive Chart.js line plot showing balance trajectory and recharge markers.
+       - Interactive controls for JSON dataset upload, case selection, and target date picking.
+       - Breakdown cards for Question 1 (Run-out date), Question 2 (Recharge breakdown), 
+         Item 4 (Habit comparison), and Bonus Features (Slab warnings & Monthly bills).
+
+    3. CONTROLLER (AppController):
+       - Manages app state, parses JSON file inputs, binds event handlers, and coordinates
+         updates between Model logic and View rendering.
+    ================================================================================
+    -->
+
+    <div id="app" class="min-h-full flex flex-col">
+        <!-- Header / Navbar -->
+        <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-emerald-500 p-2 rounded-lg text-slate-900 font-bold">
+                        <i class="fa-solid fa-bolt text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-bold tracking-tight">Prepaid Meter Advisor</h1>
+                        <p class="text-xs text-slate-400">Dhaka Electricity Tariff Optimizer & Forecast</p>
+                    </div>
+                </div>
+                
+                <!-- Dataset Upload & Case Switcher -->
+                <div class="flex items-center space-x-3">
+                    <label class="cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 px-3 rounded-md border border-slate-700 transition flex items-center gap-2">
+                        <i class="fa-solid fa-upload"></i>
+                        <span>Upload JSON</span>
+                        <input type="file" id="json-file-input" accept=".json" class="hidden">
+                    </label>
+                    
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xs text-slate-400 hidden sm:inline">Active Case:</span>
+                        <select id="case-selector" class="bg-slate-800 border border-slate-700 text-white text-xs rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+            
+            <!-- Banner / Slab Warning Alert -->
+            <div id="slab-warning-banner" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-amber-900 flex items-start gap-3">
+                <i class="fa-solid fa-triangle-exclamation text-amber-500 text-xl mt-0.5"></i>
+                <div class="flex-grow">
+                    <h3 class="font-semibold text-sm text-amber-700" id="slab-warning-title">Near Slab Boundary</h3>
+                    <p class="text-xs text-amber-600 mt-0.5" id="slab-warning-desc">Loading slab details...</p>
+                </div>
+            </div>
+
+            <!-- Top Summary Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <!-- Current Balance -->
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Current Meter Balance</span>
+                        <div class="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                            <i class="fa-solid fa-wallet"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="text-2xl font-black text-slate-900" id="card-current-balance">৳0.00</div>
+                        <p class="text-xs text-slate-500 mt-1" id="card-today-date">As of Today</p>
+                    </div>
+                </div>
+
+                <!-- Forecasted Depletion Date -->
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Estimated Run-Out Date</span>
+                        <div class="p-2 bg-rose-50 text-rose-600 rounded-lg">
+                            <i class="fa-solid fa-calendar-xmark"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="text-2xl font-black text-rose-600" id="card-runout-date">---</div>
+                        <p class="text-xs text-slate-500 mt-1" id="card-days-left">0 days remaining</p>
+                    </div>
+                </div>
+
+                <!-- Monthly Running Units -->
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Current Month Units</span>
+                        <div class="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                            <i class="fa-solid fa-gauge"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="text-2xl font-black text-slate-900" id="card-monthly-units">0 kWh</div>
+                        <p class="text-xs text-slate-500 mt-1" id="card-current-slab">Active Slab: 1</p>
+                    </div>
+                </div>
+
+                <!-- Target Date Advisor Quick Status -->
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Target Date Recharge</span>
+                        <div class="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                            <i class="fa-solid fa-hand-holding-dollar"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="text-2xl font-black text-slate-900" id="card-required-recharge">৳0.00</div>
+                        <p class="text-xs text-purple-600 font-medium mt-1" id="card-target-date-subtitle">Needed by Target Date</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Chart Section: Meter Balance Line Chart -->
+            <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900">Historical Meter Balance</h2>
+                        <p class="text-xs text-slate-500">Day-by-day balance timeline calculated with exact slab tariffs and monthly fixed charges.</p>
+                    </div>
+                    <div class="flex items-center space-x-4 text-xs">
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span> Balance</span>
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-indigo-600 inline-block"></span> Recharge Point</span>
+                    </div>
+                </div>
+                <div class="relative w-full h-80">
+                    <canvas id="balanceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Two-Column Interactive Analysis Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                <!-- Left Column: Recharge Advisor & Breakdown (Questions 1 & 2) -->
+                <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-5">
+                    <div>
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                                <i class="fa-solid fa-calculator text-emerald-600"></i>
+                                Recharge Advisor & Cost Breakdown
+                            </h2>
+                            <span class="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-semibold">Q1 & Q2 Solution</span>
+                        </div>
+
+                        <!-- Target Date Controls -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 mb-5">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Usual Daily Consumption</label>
+                                <div class="flex items-center">
+                                    <input type="number" id="input-daily-units" class="w-full bg-white border border-slate-300 rounded-lg text-sm px-3 py-2 text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none" min="1" value="10">
+                                    <span class="ml-2 text-xs text-slate-500 font-medium">kWh/day</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Target End Date</label>
+                                <input type="date" id="input-target-date" class="w-full bg-white border border-slate-300 rounded-lg text-sm px-3 py-2 text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Solution Summary for Q1 -->
+                        <div class="p-4 rounded-xl bg-slate-900 text-white mb-5">
+                            <div class="text-xs text-slate-400 font-medium mb-1">Question 1: Run-Out Date Forecast</div>
+                            <div class="text-sm">
+                                With today's balance of <span class="font-bold text-emerald-400" id="q1-balance">৳0.00</span> and daily usage of <span class="font-bold text-emerald-400" id="q1-rate">0 kWh</span>, your meter will run out on:
+                            </div>
+                            <div class="text-xl font-black text-amber-400 mt-2 flex items-center gap-2">
+                                <i class="fa-solid fa-clock"></i>
+                                <span id="q1-date">---</span>
+                            </div>
+                        </div>
+
+                        <!-- Solution Summary for Q2 Breakdown -->
+                        <div>
+                            <div class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Question 2: Recharge Breakdown to Last Until Target Date</div>
+                            
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-center text-xs p-2.5 bg-slate-50 rounded-lg">
+                                    <span class="text-slate-600">Total Recommended Recharge Today:</span>
+                                    <span class="font-bold text-slate-900 text-sm" id="q2-total-recharge">৳0.00</span>
+                                </div>
+
+                                <div class="space-y-1.5 pl-2 text-xs border-l-2 border-slate-200">
+                                    <div class="flex justify-between items-center py-1">
+                                        <span class="text-slate-500 flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                                            Base Energy Cost (Flat Slab 1 @ 4.63)
+                                        </span>
+                                        <span class="font-semibold text-slate-700" id="q2-base-energy">৳0.00</span>
+                                    </div>
+
+                                    <div class="flex justify-between items-center py-1">
+                                        <span class="text-slate-500 flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                                            Upper Slab Premium (Higher Slabs Surcharge)
+                                        </span>
+                                        <span class="font-semibold text-slate-700" id="q2-slab-premium">৳0.00</span>
+                                    </div>
+
+                                    <div class="flex justify-between items-center py-1">
+                                        <span class="text-slate-500 flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                                            Monthly Fixed Charges (Demand ৳42 + Rent ৳40)
+                                        </span>
+                                        <span class="font-semibold text-slate-700" id="q2-fixed-charges">৳0.00</span>
+                                    </div>
+
+                                    <div class="flex justify-between items-center py-1">
+                                        <span class="text-slate-500 flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                                            VAT (5% on Energy Amount)
+                                        </span>
+                                        <span class="font-semibold text-slate-700" id="q2-vat">৳0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Recharge Habit Comparison (Item 4) -->
+                <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-5">
+                    <div>
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                                <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                                3-Month Habit Strategy Comparison
+                            </h2>
+                            <span class="bg-indigo-100 text-indigo-800 text-xs px-2.5 py-1 rounded-full font-semibold">Item 4 Solution</span>
+                        </div>
+
+                        <p class="text-xs text-slate-500 mb-4">
+                            Evaluates identical consumption over <span id="comp-months" class="font-bold text-slate-700">3 months</span> using identical slab counters. 
+                            Compares recharging when balance drops below threshold versus recharging fixed amount on the 1st of each month.
+                        </p>
+
+                        <!-- Strategy Comparison Cards -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                            <!-- Habit A: Low Balance -->
+                            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Habit A: Low Balance</div>
+                                <div class="text-xs text-slate-500 mb-3" id="comp-habit-a-desc">Recharge ৳2000 when balance &lt; ৳100</div>
+                                <div class="space-y-1 text-xs">
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-500">Total Cost Consumed:</span>
+                                        <span class="font-bold text-slate-800" id="habit-a-cost">৳0.00</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-500">Fixed Charges Deducted:</span>
+                                        <span class="font-medium text-slate-700" id="habit-a-fixed">৳0.00</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-500">Recharge Events:</span>
+                                        <span class="font-medium text-slate-700" id="habit-a-count">0 times</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Habit B: Monthly Start -->
+                            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Habit B: Start of Month</div>
+                                <div class="text-xs text-slate-500 mb-3" id="comp-habit-b-desc">Recharge ৳2000 on 1st of each month</div>
+                                <div class="space-y-1 text-xs">
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-500">Total Cost Consumed:</span>
+                                        <span class="font-bold text-slate-800" id="habit-b-cost">৳0.00</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-500">Fixed Charges Deducted:</span>
+                                        <span class="font-medium text-slate-700" id="habit-b-fixed">৳0.00</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-500">Recharge Events:</span>
+                                        <span class="font-medium text-slate-700" id="habit-b-count">3 times</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Comparison Winner Verdict -->
+                        <div id="comp-verdict-card" class="p-4 rounded-xl border flex items-center gap-3">
+                            <i id="comp-verdict-icon" class="fa-solid fa-circle-check text-2xl"></i>
+                            <div>
+                                <h3 class="font-bold text-sm" id="comp-verdict-title font-bold">Comparison Verdict</h3>
+                                <p class="text-xs mt-0.5" id="comp-verdict-text">Calculating comparison...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bonus Feature: Monthly Detailed Bill Inspector -->
+            <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-100 pb-3 mb-4 gap-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                            <i class="fa-solid fa-file-invoice-dollar text-emerald-600"></i>
+                            Monthly Bill Inspector & Slab Breakdown
+                        </h2>
+                        <p class="text-xs text-slate-500">Select any month from the dataset to examine energy, fixed charges, and VAT breakdown.</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <label class="text-xs text-slate-500 font-medium">Select Month:</label>
+                        <select id="bill-month-selector" class="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Consumption</span>
+                        <div class="text-xl font-bold text-slate-900 mt-1" id="bill-total-units">0 kWh</div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Energy Amount</span>
+                        <div class="text-xl font-bold text-blue-600 mt-1" id="bill-energy-cost">৳0.00</div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Demand Charge</span>
+                        <div class="text-xl font-bold text-slate-700 mt-1" id="bill-demand-charge">৳42.00</div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Meter Rent</span>
+                        <div class="text-xl font-bold text-slate-700 mt-1" id="bill-meter-rent">৳40.00</div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">VAT (5%)</span>
+                        <div class="text-xl font-bold text-rose-600 mt-1" id="bill-vat">৳0.00</div>
+                    </div>
+                </div>
+
+                <!-- Slab distribution bar visualization -->
+                <div class="mt-6">
+                    <div class="text-xs font-semibold text-slate-700 mb-2">Units Distribution across Tariff Slabs:</div>
+                    <div class="h-4 w-full bg-slate-100 rounded-full overflow-hidden flex" id="slab-progress-bar">
+                        <!-- Populated dynamically -->
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-6 gap-2 mt-3 text-xs" id="slab-legend">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Footer -->
+        <footer class="bg-slate-900 text-slate-400 border-t border-slate-800 text-xs py-4 text-center">
+            <div class="max-w-7xl mx-auto px-4">
+                Prepaid Meter Recharge Advisor &bull; Designed strictly according to specified Dhaka Residential Tariff Rules.
+            </div>
+        </footer>
+    </div>
+
+    <!-- JavaScript Application Code (MVC Pattern) -->
+    <script>
+        /**
+         * ============================================================================
+         * 1. MODEL COMPONENT (Tariff Rules & Meter Engine)
+         * ============================================================================
+         */
+        const TariffModel = {
+            // Fixed Charges & Tax Rate
+            DEMAND_CHARGE: 42.00,
+            METER_RENT: 40.00,
+            VAT_RATE: 0.05,
+
+            // Slab Table Definition
+            // Units 1 to 75: 4.63
+            // 76 to 200: 5.26
+            // 201 to 300: 5.63
+            // 301 to 400: 5.83
+            // 401 to 600: 9.30
+            // 601 and above: 10.70
+            SLABS: [
+                { min: 1, max: 75, rate: 4.63, label: 'Slab 1 (1-75)', color: '#3b82f6' },
+                { min: 76, max: 200, rate: 5.26, label: 'Slab 2 (76-200)', color: '#10b981' },
+                { min: 201, max: 300, rate: 5.63, label: 'Slab 3 (201-300)', color: '#f59e0b' },
+                { min: 301, max: 400, rate: 5.83, label: 'Slab 4 (301-400)', color: '#8b5cf6' },
+                { min: 401, max: 600, rate: 9.30, label: 'Slab 5 (401-600)', color: '#ec4899' },
+                { min: 601, max: Infinity, rate: 10.70, label: 'Slab 6 (601+)', color: '#ef4444' }
+            ],
+
+            /**
+             * Calculates energy cost for a chunk of units added to a running monthly total
+             * @param {number} startUnits - Running monthly unit count before today's consumption
+             * @param {number} unitsToday - Units consumed today
+             * @returns {number} Energy cost in BDT
+             */
+            calculateEnergyCost(startUnits, unitsToday) {
+                let cost = 0;
+                let currentUnit = startUnits + 1;
+                const endUnit = startUnits + unitsToday;
+
+                while (currentUnit <= endUnit) {
+                    const slab = this.SLABS.find(s => currentUnit >= s.min && currentUnit <= s.max);
+                    // Find how many units fit into this slab range
+                    const unitsInSlab = Math.min(endUnit - currentUnit + 1, slab.max - currentUnit + 1);
+                    cost += unitsInSlab * slab.rate;
+                    currentUnit += unitsInSlab;
+                }
+                return cost;
+            },
+
+            /**
+             * Returns the current active slab object for a given unit count
+             */
+            getSlabForUnit(unitNumber) {
+                return this.SLABS.find(s => unitNumber >= s.min && unitNumber <= s.max) || this.SLABS[this.SLABS.length - 1];
+            },
+
+            /**
+             * Rebuilds the daily meter balance for a case dataset day-by-day
+             */
+            rebuildMeterHistory(caseData) {
+                let currentBalance = parseFloat(caseData.opening_balance_bdt);
+                const days = caseData.days;
+                const recharges = caseData.recharges;
+
+                // Index recharges by date
+                const rechargeMap = {};
+                recharges.forEach(r => {
+                    rechargeMap[r.date] = parseFloat(r.amount_bdt);
+                });
+
+                let runningMonthlyUnits = 0;
+                let currentMonthKey = null;
+                let hasRechargedThisMonth = false;
+
+                const history = [];
+
+                days.forEach(day => {
+                    const dateObj = new Date(day.date);
+                    const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+
+                    // Calendar month reset
+                    if (monthKey !== currentMonthKey) {
+                        currentMonthKey = monthKey;
+                        runningMonthlyUnits = 0;
+                        hasRechargedThisMonth = false;
+                    }
+
+                    let dayRecharge = 0;
+                    let fixedDeduction = 0;
+
+                    // Check if recharge occurs on this date
+                    if (rechargeMap[day.date] !== undefined) {
+                        dayRecharge = rechargeMap[day.date];
+                        currentBalance += dayRecharge;
+
+                        // First recharge of the month triggers fixed charges
+                        if (!hasRechargedThisMonth) {
+                            fixedDeduction = this.DEMAND_CHARGE + this.METER_RENT; // 82.00
+                            currentBalance -= fixedDeduction;
+                            hasRechargedThisMonth = true;
+                        }
+                    }
+
+                    // Calculate energy cost and VAT for today's units
+                    const unitsToday = day.units;
+                    const energyCost = this.calculateEnergyCost(runningMonthlyUnits, unitsToday);
+                    const vat = energyCost * this.VAT_RATE;
+                    const totalDailyCost = energyCost + vat;
+
+                    // Deduct daily cost from meter balance
+                    currentBalance -= totalDailyCost;
+                    runningMonthlyUnits += unitsToday;
+
+                    history.push({
+                        date: day.date,
+                        units: unitsToday,
+                        runningMonthlyUnits: runningMonthlyUnits,
+                        recharge: dayRecharge,
+                        fixedDeduction: fixedDeduction,
+                        energyCost: energyCost,
+                        vat: vat,
+                        totalDailyCost: totalDailyCost,
+                        balance: currentBalance,
+                        hasRecharge: dayRecharge > 0
+                    });
+                });
+
+                return history;
+            },
+
+            /**
+             * Solves Question 1: Forecast date when meter balance runs out
+             */
+            forecastRunOutDate(todayDateStr, currentBalance, usualDailyUnits) {
+                let balance = currentBalance;
+                let currentDate = new Date(todayDateStr);
+                
+                // Get month & running units up to today
+                let runningUnits = 0; // Starts from 0 or estimated for future days
+                let currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                
+                let daysLeft = 0;
+
+                // Safety limit to prevent infinite loops (max 365 days forecast)
+                while (balance > 0 && daysLeft < 365) {
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    daysLeft++;
+
+                    const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                    if (monthKey !== currentMonthKey) {
+                        currentMonthKey = monthKey;
+                        runningUnits = 0; // Calendar month reset
+                    }
+
+                    const energyCost = this.calculateEnergyCost(runningUnits, usualDailyUnits);
+                    const vat = energyCost * this.VAT_RATE;
+                    const dailyCost = energyCost + vat;
+
+                    balance -= dailyCost;
+                    runningUnits += usualDailyUnits;
+
+                    if (balance <= 0) break;
+                }
+
+                const runOutDateStr = currentDate.toISOString().split('T')[0];
+                return { runOutDateStr, daysLeft };
+            },
+
+            /**
+             * Solves Question 2: Breakdown of recharge needed to last until target date
+             */
+            calculateTargetRecharge(todayDateStr, currentBalance, targetDateStr, usualDailyUnits, caseHistory) {
+                if (targetDateStr <= todayDateStr) {
+                    return { total: 0, baseEnergy: 0, slabPremium: 0, fixedCharges: 0, vat: 0 };
+                }
+
+                // Identify running units on today
+                const todayRecord = caseHistory.find(h => h.date === todayDateStr);
+                let runningUnits = todayRecord ? todayRecord.runningMonthlyUnits : 0;
+                
+                let currDate = new Date(todayDateStr);
+                const targetDate = new Date(targetDateStr);
+
+                let currentMonthKey = `${currDate.getFullYear()}-${String(currDate.getMonth() + 1).padStart(2, '0')}`;
+                
+                // Track if current month already had a recharge
+                let monthRechargedMap = {};
+                // Check past history up to today to see if current month had a recharge
+                caseHistory.forEach(h => {
+                    const mKey = h.date.substring(0, 7);
+                    if (h.recharge > 0) {
+                        monthRechargedMap[mKey] = true;
+                    }
+                });
+
+                let totalUnitsNeeded = 0;
+                let totalEnergyCost = 0;
+                let totalFixedCharges = 0;
+
+                // If today's recharge is made, will it be the 1st recharge of this month?
+                if (!monthRechargedMap[currentMonthKey]) {
+                    totalFixedCharges += (this.DEMAND_CHARGE + this.METER_RENT);
+                    monthRechargedMap[currentMonthKey] = true;
+                }
+
+                while (currDate < targetDate) {
+                    currDate.setDate(currDate.getDate() + 1);
+                    const dateStr = currDate.toISOString().split('T')[0];
+                    const monthKey = dateStr.substring(0, 7);
+
+                    if (monthKey !== currentMonthKey) {
+                        currentMonthKey = monthKey;
+                        runningUnits = 0; // Calendar month slab counter reset
+
+                        // A new month will require a recharge to keep meter active, so 1st recharge triggers fixed charges
+                        if (!monthRechargedMap[monthKey]) {
+                            totalFixedCharges += (this.DEMAND_CHARGE + this.METER_RENT);
+                            monthRechargedMap[monthKey] = true;
+                        }
+                    }
+
+                    const energy = this.calculateEnergyCost(runningUnits, usualDailyUnits);
+                    totalEnergyCost += energy;
+                    totalUnitsNeeded += usualDailyUnits;
+                    runningUnits += usualDailyUnits;
+                }
+
+                const totalVat = totalEnergyCost * this.VAT_RATE;
+                const totalCostNeeded = totalEnergyCost + totalFixedCharges + totalVat;
+
+                // Required recharge = Total cost needed minus remaining balance on today
+                const requiredRecharge = Math.max(0, totalCostNeeded - currentBalance);
+
+                // Proportional breakdown of the required recharge amount
+                const baseEnergyRate = this.SLABS[0].rate; // 4.63
+                const totalBaseEnergyCost = totalUnitsNeeded * baseEnergyRate;
+                const totalSlabPremium = Math.max(0, totalEnergyCost - totalBaseEnergyCost);
+
+                return {
+                    total: requiredRecharge,
+                    totalCostNeeded: totalCostNeeded,
+                    baseEnergy: totalBaseEnergyCost,
+                    slabPremium: totalSlabPremium,
+                    fixedCharges: totalFixedCharges,
+                    vat: totalVat,
+                    totalUnitsNeeded: totalUnitsNeeded
+                };
+            },
+
+            /**
+             * Solves Item 4: Comparison of two recharge habits over 3 months
+             */
+            runHabitComparison(caseData) {
+                const comp = caseData.comparison;
+                const months = comp.months;
+                
+                // Extract matching days from caseData for the comparison months
+                const compDays = caseData.days.filter(d => months.some(m => d.date.startsWith(m)));
+                
+                const openingBalance = parseFloat(comp.opening_balance_bdt || "0.00");
+                const lowThreshold = parseFloat(comp.low_threshold_bdt || "200.00");
+                const lowAmount = parseFloat(comp.low_amount_bdt || "2000.00");
+                const monthlyAmount = parseFloat(comp.monthly_amount_bdt || "2000.00");
+
+                // Helper runner for a habit
+                const simulateHabit = (type) => {
+                    let balance = openingBalance;
+                    let runningUnits = 0;
+                    let currentMonthKey = null;
+                    let hasRechargedThisMonth = false;
+
+                    let totalConsumedCost = 0; // Energy + VAT + Fixed Charges deducted
+                    let totalFixedDeducted = 0;
+                    let rechargeCount = 0;
+
+                    compDays.forEach(day => {
+                        const dateObj = new Date(day.date);
+                        const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+
+                        // Calendar month slab reset
+                        if (monthKey !== currentMonthKey) {
+                            currentMonthKey = monthKey;
+                            runningUnits = 0;
+                            hasRechargedThisMonth = false;
+
+                            // Habit B: Monthly recharge on the 1st day of month
+                            if (type === 'monthly') {
+                                balance += monthlyAmount;
+                                rechargeCount++;
+                                fixedDeduction = TariffModel.DEMAND_CHARGE + TariffModel.METER_RENT;
+                                balance -= fixedDeduction;
+                                totalFixedDeducted += fixedDeduction;
+                                hasRechargedThisMonth = true;
+                            }
+                        }
+
+                        // Habit A: Low Balance recharge at start of day if balance < threshold
+                        if (type === 'low') {
+                            if (balance < lowThreshold) {
+                                balance += lowAmount;
+                                rechargeCount++;
+                                if (!hasRechargedThisMonth) {
+                                    const fixedDeduction = TariffModel.DEMAND_CHARGE + TariffModel.METER_RENT;
+                                    balance -= fixedDeduction;
+                                    totalFixedDeducted += fixedDeduction;
+                                    hasRechargedThisMonth = true;
+                                }
+                            }
+                        }
+
+                        // Daily consumption
+                        const unitsToday = day.units;
+                        const energyCost = TariffModel.calculateEnergyCost(runningUnits, unitsToday);
+                        const vat = energyCost * TariffModel.VAT_RATE;
+                        const dailyCost = energyCost + vat;
+
+                        balance -= dailyCost;
+                        runningUnits += unitsToday;
+                        totalConsumedCost += dailyCost;
+                    });
+
+                    // Add total fixed charges deducted to total consumed cost
+                    totalConsumedCost += totalFixedDeducted;
+
+                    return {
+                        consumedCost: totalConsumedCost,
+                        fixedDeducted: totalFixedDeducted,
+                        rechargeCount: rechargeCount,
+                        finalBalance: balance
+                    };
+                };
+
+                const habitA = simulateHabit('low');
+                const habitB = simulateHabit('monthly');
+
+                return { habitA, habitB, months };
+            }
+        };
+
+        /**
+         * Embedded Default JSON Dataset (PUB-01 and PUB-02 full cases)
+         */
+        const DEFAULT_DATASET = {
+          "schema_version": "2.1",
+          "problem_id": "P10",
+          "cases": [
+            {
+              "case_id": "PUB-01",
+              "opening_balance_bdt": "310.00",
+              "days": [
+                {"date": "2026-01-01", "units": 3}, {"date": "2026-01-02", "units": 4}, {"date": "2026-01-03", "units": 5},
+                {"date": "2026-01-04", "units": 5}, {"date": "2026-01-05", "units": 4}, {"date": "2026-01-06", "units": 5},
+                {"date": "2026-01-07", "units": 6}, {"date": "2026-01-08", "units": 5}, {"date": "2026-01-09", "units": 3},
+                {"date": "2026-01-10", "units": 3}, {"date": "2026-01-11", "units": 4}, {"date": "2026-01-12", "units": 4},
+                {"date": "2026-01-13", "units": 4}, {"date": "2026-01-14", "units": 5}, {"date": "2026-01-15", "units": 2},
+                {"date": "2026-01-16", "units": 5}, {"date": "2026-01-17", "units": 6}, {"date": "2026-01-18", "units": 4},
+                {"date": "2026-01-19", "units": 5}, {"date": "2026-01-20", "units": 3}, {"date": "2026-01-21", "units": 4},
+                {"date": "2026-01-22", "units": 4}, {"date": "2026-01-23", "units": 4}, {"date": "2026-01-24", "units": 3},
+                {"date": "2026-01-25", "units": 4}, {"date": "2026-01-26", "units": 4}, {"date": "2026-01-27", "units": 3},
+                {"date": "2026-01-28", "units": 5}, {"date": "2026-01-29", "units": 5}, {"date": "2026-01-30", "units": 4},
+                {"date": "2026-01-31", "units": 4},
+                {"date": "2026-02-01", "units": 6}, {"date": "2026-02-02", "units": 5}, {"date": "2026-02-03", "units": 4},
+                {"date": "2026-02-04", "units": 5}, {"date": "2026-02-05", "units": 5}, {"date": "2026-02-06", "units": 6},
+                {"date": "2026-02-07", "units": 2}, {"date": "2026-02-08", "units": 5}, {"date": "2026-02-09", "units": 5},
+                {"date": "2026-02-10", "units": 6}, {"date": "2026-02-11", "units": 6}, {"date": "2026-02-12", "units": 7},
+                {"date": "2026-02-13", "units": 6}, {"date": "2026-02-14", "units": 5}, {"date": "2026-02-15", "units": 7},
+                {"date": "2026-02-16", "units": 6}, {"date": "2026-02-17", "units": 7}, {"date": "2026-02-18", "units": 5},
+                {"date": "2026-02-19", "units": 6}, {"date": "2026-02-20", "units": 5}, {"date": "2026-02-21", "units": 7},
+                {"date": "2026-02-22", "units": 5}, {"date": "2026-02-23", "units": 6}, {"date": "2026-02-24", "units": 6},
+                {"date": "2026-02-25", "units": 8}, {"date": "2026-02-26", "units": 5}, {"date": "2026-02-27", "units": 4},
+                {"date": "2026-02-28", "units": 5},
+                {"date": "2026-03-01", "units": 9}, {"date": "2026-03-02", "units": 8}, {"date": "2026-03-03", "units": 11},
+                {"date": "2026-03-04", "units": 10}, {"date": "2026-03-05", "units": 8}, {"date": "2026-03-06", "units": 9},
+                {"date": "2026-03-07", "units": 7}, {"date": "2026-03-08", "units": 12}, {"date": "2026-03-09", "units": 12},
+                {"date": "2026-03-10", "units": 7}, {"date": "2026-03-11", "units": 9}, {"date": "2026-03-12", "units": 9},
+                {"date": "2026-03-13", "units": 8}, {"date": "2026-03-14", "units": 6}, {"date": "2026-03-15", "units": 5},
+                {"date": "2026-03-16", "units": 8}, {"date": "2026-03-17", "units": 10}, {"date": "2026-03-18", "units": 12},
+                {"date": "2026-03-19", "units": 7}, {"date": "2026-03-20", "units": 11}, {"date": "2026-03-21", "units": 12},
+                {"date": "2026-03-22", "units": 9}, {"date": "2026-03-23", "units": 7}, {"date": "2026-03-24", "units": 3},
+                {"date": "2026-03-25", "units": 8}, {"date": "2026-03-26", "units": 9}, {"date": "2026-03-27", "units": 9},
+                {"date": "2026-03-28", "units": 11}, {"date": "2026-03-29", "units": 8}, {"date": "2026-03-30", "units": 11},
+                {"date": "2026-03-31", "units": 10},
+                {"date": "2026-04-01", "units": 13}, {"date": "2026-04-02", "units": 20}, {"date": "2026-04-03", "units": 16},
+                {"date": "2026-04-04", "units": 18}, {"date": "2026-04-05", "units": 13}, {"date": "2026-04-06", "units": 17},
+                {"date": "2026-04-07", "units": 16}, {"date": "2026-04-08", "units": 14}, {"date": "2026-04-09", "units": 19},
+                {"date": "2026-04-10", "units": 11}, {"date": "2026-04-11", "units": 12}, {"date": "2026-04-12", "units": 14},
+                {"date": "2026-04-13", "units": 17}, {"date": "2026-04-14", "units": 13}, {"date": "2026-04-15", "units": 16},
+                {"date": "2026-04-16", "units": 14}, {"date": "2026-04-17", "units": 17}, {"date": "2026-04-18", "units": 12},
+                {"date": "2026-04-19", "units": 14}, {"date": "2026-04-20", "units": 13}, {"date": "2026-04-21", "units": 18},
+                {"date": "2026-04-22", "units": 15}, {"date": "2026-04-23", "units": 10}, {"date": "2026-04-24", "units": 14},
+                {"date": "2026-04-25", "units": 13}, {"date": "2026-04-26", "units": 8}, {"date": "2026-04-27", "units": 9},
+                {"date": "2026-04-28", "units": 9}, {"date": "2026-04-29", "units": 19}, {"date": "2026-04-30", "units": 10},
+                {"date": "2026-05-01", "units": 27}, {"date": "2026-05-02", "units": 11}, {"date": "2026-05-03", "units": 13},
+                {"date": "2026-05-04", "units": 19}, {"date": "2026-05-05", "units": 19}, {"date": "2026-05-06", "units": 18},
+                {"date": "2026-05-07", "units": 31}, {"date": "2026-05-08", "units": 16}, {"date": "2026-05-09", "units": 26},
+                {"date": "2026-05-10", "units": 24}, {"date": "2026-05-11", "units": 15}, {"date": "2026-05-12", "units": 28},
+                {"date": "2026-05-13", "units": 20}, {"date": "2026-05-14", "units": 24}, {"date": "2026-05-15", "units": 22},
+                {"date": "2026-05-16", "units": 23}, {"date": "2026-05-17", "units": 19}, {"date": "2026-05-18", "units": 19},
+                {"date": "2026-05-19", "units": 12}, {"date": "2026-05-20", "units": 31}, {"date": "2026-05-21", "units": 23},
+                {"date": "2026-05-22", "units": 19}, {"date": "2026-05-23", "units": 28}, {"date": "2026-05-24", "units": 25},
+                {"date": "2026-05-25", "units": 23}, {"date": "2026-05-26", "units": 28}, {"date": "2026-05-27", "units": 19},
+                {"date": "2026-05-28", "units": 27}, {"date": "2026-05-29", "units": 23}, {"date": "2026-05-30", "units": 27},
+                {"date": "2026-05-31", "units": 14},
+                {"date": "2026-06-01", "units": 19}, {"date": "2026-06-02", "units": 21}, {"date": "2026-06-03", "units": 16},
+                {"date": "2026-06-04", "units": 23}, {"date": "2026-06-05", "units": 18}, {"date": "2026-06-06", "units": 11},
+                {"date": "2026-06-07", "units": 25}, {"date": "2026-06-08", "units": 29}, {"date": "2026-06-09", "units": 21},
+                {"date": "2026-06-10", "units": 8}, {"date": "2026-06-11", "units": 29}, {"date": "2026-06-12", "units": 31},
+                {"date": "2026-06-13", "units": 22}, {"date": "2026-06-14", "units": 18}, {"date": "2026-06-15", "units": 14},
+                {"date": "2026-06-16", "units": 18}, {"date": "2026-06-17", "units": 19}, {"date": "2026-06-18", "units": 22},
+                {"date": "2026-06-19", "units": 28}, {"date": "2026-06-20", "units": 12}, {"date": "2026-06-21", "units": 12},
+                {"date": "2026-06-22", "units": 14}, {"date": "2026-06-23", "units": 18}, {"date": "2026-06-24", "units": 25},
+                {"date": "2026-06-25", "units": 18}, {"date": "2026-06-26", "units": 18}, {"date": "2026-06-27", "units": 21},
+                {"date": "2026-06-28", "units": 18}, {"date": "2026-06-29", "units": 21}, {"date": "2026-06-30", "units": 14}
+              ],
+              "recharges": [
+                {"date": "2026-01-09", "amount_bdt": "300.00"}, {"date": "2026-01-19", "amount_bdt": "300.00"},
+                {"date": "2026-01-30", "amount_bdt": "300.00"}, {"date": "2026-02-07", "amount_bdt": "400.00"},
+                {"date": "2026-02-18", "amount_bdt": "300.00"}, {"date": "2026-02-25", "amount_bdt": "400.00"},
+                {"date": "2026-03-06", "amount_bdt": "400.00"}, {"date": "2026-03-12", "amount_bdt": "400.00"},
+                {"date": "2026-03-19", "amount_bdt": "700.00"}, {"date": "2026-04-01", "amount_bdt": "900.00"},
+                {"date": "2026-04-11", "amount_bdt": "900.00"}, {"date": "2026-04-21", "amount_bdt": "800.00"},
+                {"date": "2026-04-30", "amount_bdt": "600.00"}, {"date": "2026-05-05", "amount_bdt": "1600.00"},
+                {"date": "2026-05-17", "amount_bdt": "2000.00"}, {"date": "2026-05-26", "amount_bdt": "4300.00"},
+                {"date": "2026-06-25", "amount_bdt": "900.00"}, {"date": "2026-06-29", "amount_bdt": "1300.00"}
+              ],
+              "today": "2026-06-30",
+              "usual_daily_units": 19,
+              "target_date": "2026-08-13",
+              "comparison": {
+                "months": ["2026-04", "2026-05", "2026-06"],
+                "source": "readings",
+                "daily_units": null,
+                "opening_balance_bdt": "0.00",
+                "low_threshold_bdt": "200.00",
+                "low_amount_bdt": "5000.00",
+                "monthly_amount_bdt": "2000.00"
+              }
+            },
+            {
+              "case_id": "PUB-02",
+              "opening_balance_bdt": "692.00",
+              "days": [
+                {"date": "2026-02-01", "units": 6}, {"date": "2026-02-02", "units": 3}, {"date": "2026-02-03", "units": 6},
+                {"date": "2026-02-04", "units": 2}, {"date": "2026-02-05", "units": 5}, {"date": "2026-02-06", "units": 3},
+                {"date": "2026-02-07", "units": 8}, {"date": "2026-02-08", "units": 5}, {"date": "2026-02-09", "units": 3},
+                {"date": "2026-02-10", "units": 5}, {"date": "2026-02-11", "units": 6}, {"date": "2026-02-12", "units": 7},
+                {"date": "2026-02-13", "units": 4}, {"date": "2026-02-14", "units": 4}, {"date": "2026-02-15", "units": 6},
+                {"date": "2026-02-16", "units": 4}, {"date": "2026-02-17", "units": 6}, {"date": "2026-02-18", "units": 4},
+                {"date": "2026-02-19", "units": 1}, {"date": "2026-02-20", "units": 5}, {"date": "2026-02-21", "units": 5},
+                {"date": "2026-02-22", "units": 4}, {"date": "2026-02-23", "units": 5}, {"date": "2026-02-24", "units": 5},
+                {"date": "2026-02-25", "units": 3}, {"date": "2026-02-26", "units": 5}, {"date": "2026-02-27", "units": 5},
+                {"date": "2026-02-28", "units": 5},
+                {"date": "2026-03-01", "units": 9}, {"date": "2026-03-02", "units": 9}, {"date": "2026-03-03", "units": 10},
+                {"date": "2026-03-04", "units": 9}, {"date": "2026-03-05", "units": 8}, {"date": "2026-03-06", "units": 9},
+                {"date": "2026-03-07", "units": 9}, {"date": "2026-03-08", "units": 6}, {"date": "2026-03-09", "units": 6},
+                {"date": "2026-03-10", "units": 7}, {"date": "2026-03-11", "units": 11}, {"date": "2026-03-12", "units": 10},
+                {"date": "2026-03-13", "units": 11}, {"date": "2026-03-14", "units": 9}, {"date": "2026-03-15", "units": 7},
+                {"date": "2026-03-16", "units": 12}, {"date": "2026-03-17", "units": 8}, {"date": "2026-03-18", "units": 8},
+                {"date": "2026-03-19", "units": 5}, {"date": "2026-03-20", "units": 10}, {"date": "2026-03-21", "units": 7},
+                {"date": "2026-03-22", "units": 9}, {"date": "2026-03-23", "units": 5}, {"date": "2026-03-24", "units": 7},
+                {"date": "2026-03-25", "units": 9}, {"date": "2026-03-26", "units": 9}, {"date": "2026-03-27", "units": 5},
+                {"date": "2026-03-28", "units": 8}, {"date": "2026-03-29", "units": 9}, {"date": "2026-03-30", "units": 5},
+                {"date": "2026-03-31", "units": 8},
+                {"date": "2026-04-01", "units": 15}, {"date": "2026-04-02", "units": 17}, {"date": "2026-04-03", "units": 14},
+                {"date": "2026-04-04", "units": 13}, {"date": "2026-04-05", "units": 11}, {"date": "2026-04-06", "units": 9},
+                {"date": "2026-04-07", "units": 13}, {"date": "2026-04-08", "units": 12}, {"date": "2026-04-09", "units": 13},
+                {"date": "2026-04-10", "units": 14}, {"date": "2026-04-11", "units": 5}, {"date": "2026-04-12", "units": 17},
+                {"date": "2026-04-13", "units": 11}, {"date": "2026-04-14", "units": 13}, {"date": "2026-04-15", "units": 13},
+                {"date": "2026-04-16", "units": 9}, {"date": "2026-04-17", "units": 13}, {"date": "2026-04-18", "units": 11},
+                {"date": "2026-04-19", "units": 7}, {"date": "2026-04-20", "units": 17}, {"date": "2026-04-21", "units": 10},
+                {"date": "2026-04-22", "units": 14}, {"date": "2026-04-23", "units": 11}, {"date": "2026-04-24", "units": 11},
+                {"date": "2026-04-25", "units": 9}, {"date": "2026-04-26", "units": 11}, {"date": "2026-04-27", "units": 11},
+                {"date": "2026-04-28", "units": 15}, {"date": "2026-04-29", "units": 11}, {"date": "2026-04-30", "units": 18},
+                {"date": "2026-05-01", "units": 15}, {"date": "2026-05-02", "units": 19}, {"date": "2026-05-03", "units": 21},
+                {"date": "2026-05-04", "units": 18}, {"date": "2026-05-05", "units": 29}, {"date": "2026-05-06", "units": 15},
+                {"date": "2026-05-07", "units": 13}, {"date": "2026-05-08", "units": 19}, {"date": "2026-05-09", "units": 27},
+                {"date": "2026-05-10", "units": 18}, {"date": "2026-05-11", "units": 19}, {"date": "2026-05-12", "units": 23},
+                {"date": "2026-05-13", "units": 20}, {"date": "2026-05-14", "units": 26}, {"date": "2026-05-15", "units": 21},
+                {"date": "2026-05-16", "units": 21}, {"date": "2026-05-17", "units": 21}, {"date": "2026-05-18", "units": 23},
+                {"date": "2026-05-19", "units": 32}, {"date": "2026-05-20", "units": 26}, {"date": "2026-05-21", "units": 17},
+                {"date": "2026-05-22", "units": 23}, {"date": "2026-05-23", "units": 34}, {"date": "2026-05-24", "units": 24},
+                {"date": "2026-05-25", "units": 28}, {"date": "2026-05-26", "units": 22}, {"date": "2026-05-27", "units": 18},
+                {"date": "2026-05-28", "units": 21}, {"date": "2026-05-29", "units": 15}, {"date": "2026-05-30", "units": 21},
+                {"date": "2026-05-31", "units": 22},
+                {"date": "2026-06-01", "units": 12}, {"date": "2026-06-02", "units": 21}, {"date": "2026-06-03", "units": 24},
+                {"date": "2026-06-04", "units": 16}, {"date": "2026-06-05", "units": 13}, {"date": "2026-06-06", "units": 19},
+                {"date": "2026-06-07", "units": 22}, {"date": "2026-06-08", "units": 16}, {"date": "2026-06-09", "units": 28},
+                {"date": "2026-06-10", "units": 19}, {"date": "2026-06-11", "units": 22}, {"date": "2026-06-12", "units": 10},
+                {"date": "2026-06-13", "units": 16}, {"date": "2026-06-14", "units": 21}, {"date": "2026-06-15", "units": 17},
+                {"date": "2026-06-16", "units": 15}, {"date": "2026-06-17", "units": 19}, {"date": "2026-06-18", "units": 14},
+                {"date": "2026-06-19", "units": 14}, {"date": "2026-06-20", "units": 14}, {"date": "2026-06-21", "units": 30},
+                {"date": "2026-06-22", "units": 22}, {"date": "2026-06-23", "units": 18}, {"date": "2026-06-24", "units": 13},
+                {"date": "2026-06-25", "units": 22}, {"date": "2026-06-26", "units": 15}, {"date": "2026-06-27", "units": 20},
+                {"date": "2026-06-28", "units": 20}, {"date": "2026-06-29", "units": 22}, {"date": "2026-06-30", "units": 16},
+                {"date": "2026-07-01", "units": 19}, {"date": "2026-07-02", "units": 18}, {"date": "2026-07-03", "units": 17},
+                {"date": "2026-07-04", "units": 19}, {"date": "2026-07-05", "units": 11}, {"date": "2026-07-06", "units": 15},
+                {"date": "2026-07-07", "units": 17}, {"date": "2026-07-08", "units": 18}, {"date": "2026-07-09", "units": 17},
+                {"date": "2026-07-10", "units": 17}, {"date": "2026-07-11", "units": 18}, {"date": "2026-07-12", "units": 16},
+                {"date": "2026-07-13", "units": 7}, {"date": "2026-07-14", "units": 14}, {"date": "2026-07-15", "units": 7},
+                {"date": "2026-07-16", "units": 16}, {"date": "2026-07-17", "units": 14}, {"date": "2026-07-18", "units": 17},
+                {"date": "2026-07-19", "units": 17}, {"date": "2026-07-20", "units": 18}, {"date": "2026-07-21", "units": 17},
+                {"date": "2026-07-22", "units": 17}, {"date": "2026-07-23", "units": 14}, {"date": "2026-07-24", "units": 12},
+                {"date": "2026-07-25", "units": 14}, {"date": "2026-07-26", "units": 17}, {"date": "2026-07-27", "units": 10},
+                {"date": "2026-07-28", "units": 15}, {"date": "2026-07-29", "units": 10}, {"date": "2026-07-30", "units": 13},
+                {"date": "2026-07-31", "units": 18},
+                {"date": "2026-08-01", "units": 15}, {"date": "2026-08-02", "units": 11}, {"date": "2026-08-03", "units": 12},
+                {"date": "2026-08-04", "units": 13}, {"date": "2026-08-05", "units": 14}, {"date": "2026-08-06", "units": 10},
+                {"date": "2026-08-07", "units": 12}, {"date": "2026-08-08", "units": 17}, {"date": "2026-08-09", "units": 16},
+                {"date": "2026-08-10", "units": 11}, {"date": "2026-08-11", "units": 10}, {"date": "2026-08-12", "units": 13},
+                {"date": "2026-08-13", "units": 7}, {"date": "2026-08-14", "units": 8}, {"date": "2026-08-15", "units": 9},
+                {"date": "2026-08-16", "units": 13}, {"date": "2026-08-17", "units": 19}, {"date": "2026-08-18", "units": 16},
+                {"date": "2026-08-19", "units": 17}, {"date": "2026-08-20", "units": 15}, {"date": "2026-08-21", "units": 19},
+                {"date": "2026-08-22", "units": 21}, {"date": "2026-08-23", "units": 18}, {"date": "2026-08-24", "units": 16},
+                {"date": "2026-08-25", "units": 12}, {"date": "2026-08-26", "units": 14}, {"date": "2026-08-27", "units": 11},
+                {"date": "2026-08-28", "units": 13}, {"date": "2026-08-29", "units": 17}, {"date": "2026-08-30", "units": 13},
+                {"date": "2026-08-31", "units": 15},
+                {"date": "2026-09-01", "units": 15}, {"date": "2026-09-02", "units": 7}, {"date": "2026-09-03", "units": 14},
+                {"date": "2026-09-04", "units": 7}, {"date": "2026-09-05", "units": 10}, {"date": "2026-09-06", "units": 11},
+                {"date": "2026-09-07", "units": 7}, {"date": "2026-09-08", "units": 16}, {"date": "2026-09-09", "units": 9},
+                {"date": "2026-09-10", "units": 12}, {"date": "2026-09-11", "units": 6}, {"date": "2026-09-12", "units": 15},
+                {"date": "2026-09-13", "units": 9}, {"date": "2026-09-14", "units": 7}
+              ],
+              "recharges": [
+                {"date": "2026-02-24", "amount_bdt": "300.00"}, {"date": "2026-03-04", "amount_bdt": "300.00"},
+                {"date": "2026-03-08", "amount_bdt": "500.00"}, {"date": "2026-03-17", "amount_bdt": "400.00"},
+                {"date": "2026-03-25", "amount_bdt": "400.00"}, {"date": "2026-04-01", "amount_bdt": "500.00"},
+                {"date": "2026-04-08", "amount_bdt": "900.00"}, {"date": "2026-04-20", "amount_bdt": "400.00"},
+                {"date": "2026-04-24", "amount_bdt": "900.00"}, {"date": "2026-05-05", "amount_bdt": "2400.00"},
+                {"date": "2026-05-22", "amount_bdt": "2400.00"}, {"date": "2026-06-01", "amount_bdt": "1600.00"},
+                {"date": "2026-06-16", "amount_bdt": "1000.00"}, {"date": "2026-06-23", "amount_bdt": "1800.00"},
+                {"date": "2026-06-30", "amount_bdt": "3800.00"}, {"date": "2026-08-17", "amount_bdt": "900.00"},
+                {"date": "2026-08-25", "amount_bdt": "900.00"}, {"date": "2026-09-03", "amount_bdt": "300.00"},
+                {"date": "2026-09-07", "amount_bdt": "400.00"}, {"date": "2026-09-13", "amount_bdt": "300.00"}
+              ],
+              "today": "2026-09-14",
+              "usual_daily_units": 10,
+              "target_date": "2026-10-20",
+              "comparison": {
+                "months": ["2026-06", "2026-07", "2026-08"],
+                "source": "readings",
+                "daily_units": null,
+                "opening_balance_bdt": "0.00",
+                "low_threshold_bdt": "200.00",
+                "low_amount_bdt": "5000.00",
+                "monthly_amount_bdt": "2500.00"
+              }
+            }
+          ]
+        };
+
+        /**
+         * ============================================================================
+         * 2. VIEW COMPONENT (DOM Manipulators & Chart rendering)
+         * ============================================================================
+         */
+        const View = {
+            chartInstance: null,
+
+            /**
+             * Currency formatter helper
+             */
+            formatBDT(val) {
+                return `৳${parseFloat(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            },
+
+            /**
+             * Populates the case dropdown selector
+             */
+            renderCaseSelector(cases, selectedId) {
+                const selector = document.getElementById('case-selector');
+                selector.innerHTML = '';
+                cases.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.case_id;
+                    opt.textContent = `Case: ${c.case_id}`;
+                    if (c.case_id === selectedId) opt.selected = true;
+                    selector.appendChild(opt);
+                });
+            },
+
+            /**
+             * Renders Chart.js line plot for rebuilt balance timeline
+             */
+            renderChart(history) {
+                const ctx = document.getElementById('balanceChart').getContext('2d');
+
+                if (this.chartInstance) {
+                    this.chartInstance.destroy();
+                }
+
+                const labels = history.map(h => h.date);
+                const dataBalances = history.map(h => h.balance);
+                
+                // Point styling for recharge days
+                const pointRadius = history.map(h => h.hasRecharge ? 6 : 0);
+                const pointHoverRadius = history.map(h => h.hasRecharge ? 8 : 4);
+                const pointBgColor = history.map(h => h.hasRecharge ? '#4f46e5' : '#10b981');
+
+                this.chartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Meter Balance (BDT)',
+                            data: dataBalances,
+                            borderColor: '#10b981',
+                            borderWidth: 2,
+                            fill: {
+                                target: 'origin',
+                                above: 'rgba(16, 185, 129, 0.05)',
+                                below: 'rgba(239, 68, 68, 0.05)'
+                            },
+                            tension: 0.1,
+                            pointRadius: pointRadius,
+                            pointHoverRadius: pointHoverRadius,
+                            pointBackgroundColor: pointBgColor,
+                            pointBorderColor: '#ffffff',
+                            pointBorderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (context) => {
+                                        const index = context.dataIndex;
+                                        const record = history[index];
+                                        let lines = [`Balance: ${this.formatBDT(record.balance)}`];
+                                        lines.push(`Units Consumed: ${record.units} kWh`);
+                                        lines.push(`Monthly Total: ${record.runningMonthlyUnits} kWh`);
+                                        if (record.hasRecharge) {
+                                            lines.push(`⚡ Recharge Deposited: ${this.formatBDT(record.recharge)}`);
+                                            if (record.fixedDeduction > 0) {
+                                                lines.push(`📌 1st Monthly Deductions (Demand+Rent): ${this.formatBDT(record.fixedDeduction)}`);
+                                            }
+                                        }
+                                        return lines;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { display: false },
+                                ticks: { maxTicksLimit: 12, font: { size: 10 } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(226, 232, 240, 0.6)' },
+                                ticks: {
+                                    callback: (value) => `৳${value}`,
+                                    font: { size: 10 }
+                                }
+                            }
+                        }
+                    }
+                });
+            },
+
+            /**
+             * Renders Top Summary Cards & Bonus Warning Banner
+             */
+            renderSummaryCards(todayRecord, todayDateStr, runOutInfo, usualUnits, targetRecharge) {
+                const currentBalance = todayRecord ? todayRecord.balance : 0;
+                document.getElementById('card-current-balance').textContent = this.formatBDT(currentBalance);
+                document.getElementById('card-today-date').textContent = `As of ${todayDateStr}`;
+
+                document.getElementById('card-runout-date').textContent = runOutInfo.runOutDateStr;
+                document.getElementById('card-days-left').textContent = `${runOutInfo.daysLeft} day${runOutInfo.daysLeft !== 1 ? 's' : ''} remaining`;
+
+                const monthlyUnits = todayRecord ? todayRecord.runningMonthlyUnits : 0;
+                document.getElementById('card-monthly-units').textContent = `${monthlyUnits} kWh`;
+                
+                const currentSlab = TariffModel.getSlabForUnit(monthlyUnits + 1);
+                document.getElementById('card-current-slab').textContent = `Active: ${currentSlab.label} (@ ৳${currentSlab.rate}/kWh)`;
+
+                document.getElementById('card-required-recharge').textContent = this.formatBDT(targetRecharge.total);
+
+                // Bonus Feature: Slab Warning Banner
+                const warningBanner = document.getElementById('slab-warning-banner');
+                const nextSlab = TariffModel.SLABS.find(s => s.min > monthlyUnits);
+                
+                if (nextSlab) {
+                    const unitsToNext = nextSlab.min - monthlyUnits;
+                    if (unitsToNext <= 20) {
+                        warningBanner.classList.remove('hidden');
+                        document.getElementById('slab-warning-title').textContent = `Approaching ${nextSlab.label}`;
+                        document.getElementById('slab-warning-desc').innerHTML = 
+                            `You are only <strong>${unitsToNext} kWh</strong> away from crossing into ${nextSlab.label}. After crossing, each unit will cost <strong>৳${nextSlab.rate.toFixed(2)}</strong> (up from ৳${currentSlab.rate.toFixed(2)}).`;
+                    } else {
+                        warningBanner.classList.add('hidden');
+                    }
+                } else {
+                    warningBanner.classList.add('hidden');
+                }
+            },
+
+            /**
+             * Renders Question 1 & 2 Answers in Advisor Section
+             */
+            renderAdvisorSection(todayDateStr, currentBalance, usualUnits, runOutInfo, targetRecharge) {
+                document.getElementById('q1-balance').textContent = this.formatBDT(currentBalance);
+                document.getElementById('q1-rate').textContent = `${usualUnits} kWh`;
+                document.getElementById('q1-date').textContent = runOutInfo.runOutDateStr;
+
+                document.getElementById('q2-total-recharge').textContent = this.formatBDT(targetRecharge.total);
+                document.getElementById('q2-base-energy').textContent = this.formatBDT(targetRecharge.baseEnergy);
+                document.getElementById('q2-slab-premium').textContent = this.formatBDT(targetRecharge.slabPremium);
+                document.getElementById('q2-fixed-charges').textContent = this.formatBDT(targetRecharge.fixedCharges);
+                document.getElementById('q2-vat').textContent = this.formatBDT(targetRecharge.vat);
+            },
+
+            /**
+             * Renders Item 4 Comparison Results
+             */
+            renderComparison(compResult) {
+                const { habitA, habitB, months } = compResult;
+                
+                document.getElementById('comp-months').textContent = `${months.join(', ')}`;
+                
+                document.getElementById('habit-a-cost').textContent = this.formatBDT(habitA.consumedCost);
+                document.getElementById('habit-a-fixed').textContent = this.formatBDT(habitA.fixedDeducted);
+                document.getElementById('habit-a-count').textContent = `${habitA.rechargeCount} times`;
+
+                document.getElementById('habit-b-cost').textContent = this.formatBDT(habitB.consumedCost);
+                document.getElementById('habit-b-fixed').textContent = this.formatBDT(habitB.fixedDeducted);
+                document.getElementById('habit-b-count').textContent = `${habitB.rechargeCount} times`;
+
+                const verdictCard = document.getElementById('comp-verdict-card');
+                const verdictIcon = document.getElementById('comp-verdict-icon');
+                const verdictTitle = document.getElementById('comp-verdict-title font-bold');
+                const verdictText = document.getElementById('comp-verdict-text');
+
+                const diff = Math.abs(habitA.consumedCost - habitB.consumedCost);
+
+                if (diff < 0.01) {
+                    verdictCard.className = 'p-4 rounded-xl border border-blue-200 bg-blue-50 text-blue-900 flex items-center gap-3';
+                    verdictIcon.className = 'fa-solid fa-scale-balanced text-2xl text-blue-600';
+                    verdictTitle.textContent = 'Both Habits Cost Exactly the Same!';
+                    verdictText.textContent = `Both habits consume identical energy over identical calendar months. Equal fixed charges occurred, resulting in ৳0.00 difference.`;
+                } else if (habitA.consumedCost < habitB.consumedCost) {
+                    verdictCard.className = 'p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 flex items-center gap-3';
+                    verdictIcon.className = 'fa-solid fa-award text-2xl text-emerald-600';
+                    verdictTitle.textContent = 'Habit A (Low Balance) Costs Less!';
+                    verdictText.innerHTML = `Recharging on low balance saves <strong>${this.formatBDT(diff)}</strong> over 3 months due to fewer monthly fixed charge triggers.`;
+                } else {
+                    verdictCard.className = 'p-4 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-900 flex items-center gap-3';
+                    verdictIcon.className = 'fa-solid fa-award text-2xl text-indigo-600';
+                    verdictTitle.textContent = 'Habit B (Start of Month) Costs Less!';
+                    verdictText.innerHTML = `Recharging at month start saves <strong>${this.formatBDT(diff)}</strong> over 3 months due to fixed charge timing.`;
+                }
+            },
+
+            /**
+             * Renders Month Selector & Monthly Bill Breakdown (Bonus)
+             */
+            renderMonthSelector(months, activeMonth) {
+                const selector = document.getElementById('bill-month-selector');
+                selector.innerHTML = '';
+                months.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m;
+                    if (m === activeMonth) opt.selected = true;
+                    selector.appendChild(opt);
+                });
+            },
+
+            renderMonthlyBill(caseHistory, monthKey) {
+                const monthRecords = caseHistory.filter(h => h.date.startsWith(monthKey));
+                
+                const totalUnits = monthRecords.reduce((sum, r) => sum + r.units, 0);
+                const energyCost = monthRecords.reduce((sum, r) => sum + r.energyCost, 0);
+                const vat = monthRecords.reduce((sum, r) => sum + r.vat, 0);
+                const demand = TariffModel.DEMAND_CHARGE;
+                const rent = TariffModel.METER_RENT;
+
+                document.getElementById('bill-total-units').textContent = `${totalUnits} kWh`;
+                document.getElementById('bill-energy-cost').textContent = this.formatBDT(energyCost);
+                document.getElementById('bill-demand-charge').textContent = this.formatBDT(demand);
+                document.getElementById('bill-meter-rent').textContent = this.formatBDT(rent);
+                document.getElementById('bill-vat').textContent = this.formatBDT(vat);
+
+                // Breakdown of units across Slabs
+                let unitsRemaining = totalUnits;
+                const slabDistribution = TariffModel.SLABS.map(slab => {
+                    const capacity = slab.max - slab.min + 1;
+                    const allocated = Math.max(0, Math.min(unitsRemaining, capacity));
+                    unitsRemaining = Math.max(0, unitsRemaining - allocated);
+                    return { ...slab, units: allocated };
+                });
+
+                // Render visual progress bar & legend
+                const progressBar = document.getElementById('slab-progress-bar');
+                const legend = document.getElementById('slab-legend');
+                progressBar.innerHTML = '';
+                legend.innerHTML = '';
+
+                slabDistribution.forEach(slab => {
+                    const pct = totalUnits > 0 ? (slab.units / totalUnits) * 100 : 0;
+                    if (pct > 0) {
+                        const barSegment = document.createElement('div');
+                        barSegment.style.width = `${pct}%`;
+                        barSegment.style.backgroundColor = slab.color;
+                        barSegment.title = `${slab.label}: ${slab.units} kWh`;
+                        progressBar.appendChild(barSegment);
+                    }
+
+                    const legendItem = document.createElement('div');
+                    legendItem.className = 'flex items-center gap-1.5 p-1.5 bg-slate-50 rounded border border-slate-200';
+                    legendItem.innerHTML = `
+                        <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${slab.color}"></span>
+                        <div>
+                            <div class="font-bold text-slate-800">${slab.units} kWh</div>
+                            <div class="text-[10px] text-slate-500">${slab.label}</div>
+                        </div>
+                    `;
+                    legend.appendChild(legendItem);
+                });
+            }
+        };
+
+        /**
+         * ============================================================================
+         * 3. CONTROLLER COMPONENT (Event handling & App Coordination)
+         * ============================================================================
+         */
+        const AppController = {
+            dataset: null,
+            activeCaseId: null,
+            rebuiltHistory: null,
+
+            init() {
+                this.dataset = DEFAULT_DATASET;
+                this.activeCaseId = this.dataset.cases[0].case_id;
+
+                this.bindEvents();
+                this.loadActiveCase();
+            },
+
+            bindEvents() {
+                // File Upload Listener
+                document.getElementById('json-file-input').addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        try {
+                            const json = JSON.parse(event.target.result);
+                            if (json.cases && Array.isArray(json.cases) && json.cases.length > 0) {
+                                this.dataset = json;
+                                this.activeCaseId = json.cases[0].case_id;
+                                this.loadActiveCase();
+                                alert('JSON dataset successfully loaded!');
+                            } else {
+                                alert('Invalid JSON format: Missing "cases" array.');
+                            }
+                        } catch (err) {
+                            alert('Error parsing JSON file: ' + err.message);
+                        }
+                    };
+                    reader.readAsText(file);
+                });
+
+                // Case Selector Listener
+                document.getElementById('case-selector').addEventListener('change', (e) => {
+                    this.activeCaseId = e.target.value;
+                    this.loadActiveCase();
+                });
+
+                // Daily Units Input Listener
+                document.getElementById('input-daily-units').addEventListener('input', () => {
+                    this.updateAdvisorOutputs();
+                });
+
+                // Target Date Input Listener
+                document.getElementById('input-target-date').addEventListener('change', () => {
+                    this.updateAdvisorOutputs();
+                });
+
+                // Bill Month Selector Listener
+                document.getElementById('bill-month-selector').addEventListener('change', (e) => {
+                    View.renderMonthlyBill(this.rebuiltHistory, e.target.value);
+                });
+            },
+
+            loadActiveCase() {
+                const activeCase = this.dataset.cases.find(c => c.case_id === this.activeCaseId);
+                if (!activeCase) return;
+
+                // Rebuild meter balance history using Tariff Model
+                this.rebuiltHistory = TariffModel.rebuildMeterHistory(activeCase);
+
+                // Populate UI controls with case defaults
+                View.renderCaseSelector(this.dataset.cases, this.activeCaseId);
+
+                document.getElementById('input-daily-units').value = activeCase.usual_daily_units;
+                document.getElementById('input-target-date').value = activeCase.target_date;
+
+                // Render Chart
+                View.renderChart(this.rebuiltHistory);
+
+                // Habit comparison (Item 4)
+                const compResult = TariffModel.runHabitComparison(activeCase);
+                View.renderComparison(compResult);
+
+                // Extract unique months for Bill Inspector
+                const uniqueMonths = [...new Set(this.rebuiltHistory.map(h => h.date.substring(0, 7)))];
+                const activeMonth = activeCase.today.substring(0, 7);
+                View.renderMonthSelector(uniqueMonths, activeMonth);
+                View.renderMonthlyBill(this.rebuiltHistory, activeMonth);
+
+                // Update Advisor & Summary
+                this.updateAdvisorOutputs();
+            },
+
+            updateAdvisorOutputs() {
+                const activeCase = this.dataset.cases.find(c => c.case_id === this.activeCaseId);
+                if (!activeCase || !this.rebuiltHistory) return;
+
+                const todayDateStr = activeCase.today;
+                const todayRecord = this.rebuiltHistory.find(h => h.date === todayDateStr) || 
+                                    this.rebuiltHistory[this.rebuiltHistory.length - 1];
+
+                const currentBalance = todayRecord.balance;
+                const usualUnits = parseInt(document.getElementById('input-daily-units').value) || 10;
+                const targetDateStr = document.getElementById('input-target-date').value;
+
+                // Question 1: Run-out date forecast
+                const runOutInfo = TariffModel.forecastRunOutDate(todayDateStr, currentBalance, usualUnits);
+
+                // Question 2: Target recharge breakdown
+                const targetRecharge = TariffModel.calculateTargetRecharge(
+                    todayDateStr, currentBalance, targetDateStr, usualUnits, this.rebuiltHistory
+                );
+
+                // Render updates
+                View.renderSummaryCards(todayRecord, todayDateStr, runOutInfo, usualUnits, targetRecharge);
+                View.renderAdvisorSection(todayDateStr, currentBalance, usualUnits, runOutInfo, targetRecharge);
+            }
+        };
+
+        // Initialize application once window finishes loading
+        window.onload = function() {
+            AppController.init();
+        };
+    </script>
+</body>
+</html>
