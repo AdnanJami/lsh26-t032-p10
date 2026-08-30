@@ -10,6 +10,9 @@ List material frameworks, libraries, starters, templates, UI kits, fonts, icons 
 
 List each AI tool in `evaluation-manifest.json`, what it was used for and how the output was verified. Write `None` if no AI tool was used.
 
+Gemini
+
 ## Original-work statement
 
 Everything not declared in this file or `EVENT.md` was created by the registered team during the event window.
+
