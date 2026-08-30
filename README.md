@@ -55,8 +55,8 @@ Simply refresh the page.
 
 ```bash
 git clone https://github.com/AdnanJami/lsh26-t032-p10.git
-cd .\\lsh26-t032-p10
-start index.html
+cd .\\lsh26-t032-p10\\
+start .\index.html
 ```
 
 Do not include real passwords, tokens or API keys. List only variable names in `.env.example`.
