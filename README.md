@@ -7,51 +7,56 @@ Solution for **LofiStack Hackathon 2026 — P##**
 - **Team:** `Larpcoder`
 - **Team ID:** `LSH26-T032`
 - **Problem:** `P10 — Prepaid Meter Recharge Advisor`
-- **Live application:** <https://example.com>
+- **Live application:** https://adnanjami.github.io/lsh26-t032-p10/
 - **Demo video:** Optional link, maximum three minutes
 
 > Judges will evaluate only the exact commit SHA entered in the Final Submission Form.
 
 ## Solution summary
 
-In 2–4 sentences, explain what the application does and who it helps.
+Application plots meter balance over timeline, and recharge calculations for specific deadlines and probable run-out date for specific rate of consumption.
 
 ## Requirements
 
 | Requirement              | Status                             | Where to verify       |
 | ------------------------ | ---------------------------------- | --------------------- |
-| R1 — <short description> | Complete / Partial / Not attempted | Page, route or action |
-| R2 — <short description> | Complete / Partial / Not attempted | Page, route or action |
-| R3 — <short description> | Complete / Partial / Not attempted | Page, route or action |
-| R4 — <short description> | Complete / Partial / Not attempted | Page, route or action |
+| R1 — <short description> | Complete | Page, route or action |
+| R2 — <short description> | Complete | Page, route or action |
+| R3 — <short description> | Complete | Page, route or action |
+| R4 — <short description> | Complete | Page, route or action |
 
 ## How to test the application
 
 1. Open the live application.
-2. <First action>
-3. <Second action>
-4. <Expected result>
+2. Upload the sample data file provided with all 25 cases (P10_prepaid_meter_public.json) using the 'Upload JSON' button on top right corner.
+3. Choose a case using the 'Active Case' dropdown list.
+4. The balance graph is automatically plotted for the 6 months, with calculators for 
 
 ### Test or sample data
+Loading:
+Just enter the live URL
 
-Explain how to load the published fixture, enter sample data and reset the application.
+Sample data entry:
+1. Click on the 'Upload JSON' button on top right corner.
+2. Locate using file explorer and choose the sample data file provided with all 25 cases (P10_prepaid_meter_public.json) 
+
+Reset:
+Simply refresh the page.
+
 
 ## Run locally
 
 ### Requirements
 
-- <Runtime and version>
-- <Database, if required>
-- <Other requirement>
+- Runtime: Just a browser to open index.html
+- Database: None
 
 ### Setup
 
 ```bash
-git clone <PUBLIC-REPOSITORY-URL>
-cd lsh26-t###-p##
-<INSTALL-COMMAND>
-<COPY-EXAMPLE-ENV-COMMAND>
-<RUN-COMMAND>
+git clone https://github.com/AdnanJami/lsh26-t032-p10.git
+cd .\\lsh26-t032-p10
+start index.html
 ```
 
 Do not include real passwords, tokens or API keys. List only variable names in `.env.example`.
