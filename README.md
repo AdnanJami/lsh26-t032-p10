@@ -20,10 +20,10 @@ Application plots meter balance over timeline, and recharge calculations for spe
 
 | Requirement              | Status                             | Where to verify       |
 | ------------------------ | ---------------------------------- | --------------------- |
-| R1 — <short description> | Complete | Page, route or action |
-| R2 — <short description> | Complete | Page, route or action |
-| R3 — <short description> | Complete | Page, route or action |
-| R4 — <short description> | Complete | Page, route or action |
+| R1 — Dataset | Complete | Upload a JSON dataset via the 'Upload JSON' button then choose case in index.html / https://adnanjami.github.io/lsh26-t032-p10/ |
+| R2 — Plot Balance Line Chart | Complete | Check line graph on index.html / https://adnanjami.github.io/lsh26-t032-p10/ |
+| R3 — Run-out date & recharge calculator | Complete | Enter date in calculator of index.html / https://adnanjami.github.io/lsh26-t032-p10/  |
+| R4 — Habit comparison | Complete | Check habit comparison section in index.html / https://adnanjami.github.io/lsh26-t032-p10/ |
 
 ## How to test the application
 
@@ -63,20 +63,18 @@ Do not include real passwords, tokens or API keys. List only variable names in `
 
 ## Problem-solving approach
 
-Briefly explain:
-
-- how the team understood the problem;
-- the chosen solution;
-- the most important technical or product decision; and
-- how the solution was tested.
+- checked sample data structure and transform it in various manners to extract meaningful results and patterns
+- chose to create a static single-page website with custom dataset upload option. Contains a line graph plotter and calculator to fulfill user requirements
+- rebuilt the meter history from the limited data provided to be able to perform any further calculations.
+- used a calculator to add up the values against shown values
 
 ## Technology used
 
-- **Frontend:** \<technology>
-- **Backend:** \<technology>
-- **Database:** \<technology>
-- **Deployment:** \<provider>
-- **Other material tools:** \<tools>
+- **Frontend:** \HTML+JS+CSS
+- **Backend:** \None
+- **Database:** \None
+- **Deployment:** \GitHub Pages
+- **Other material tools:** \Gemini
 
 See [`LICENSES.md`](LICENSES.md) for third-party materials.
 
@@ -84,23 +82,21 @@ See [`LICENSES.md`](LICENSES.md) for third-party materials.
 
 | Registered member | GitHub username | Major contribution | Evidence                |
 | ----------------- | --------------- | ------------------ | ----------------------- |
-| \<Name>           | `<username>`    | \<Contribution>    | File, feature or commit |
-| \<Name>           | `<username>`    | \<Contribution>    | File, feature or commit |
+| Abrar Ur Alam           | `TrulyFalse`    | \Entire Project    | Commit: 510c055ee79cc9b7849576076e076cf5768b14fe |
 
-Commit count alone does not represent contribution.
+
 
 ## AI usage
 
-List each AI tool used, what it assisted with and how the team verified its output. Write `No AI tools used` if none were used.
+Gemini
 
 ## Major design decisions
 
-- **Decision:** \<decision and reason>
-- **Decision:** \<decision and reason>
+- **Decision:** \Static website, as each family simply needs a tool that calculates based on their data. Personal electricity-consumption data can be provided as JSON.
 
 ## Known limitations
 
--
+- No backend support to store history into profiles, no manual input method.
 
 ## Repository records
 

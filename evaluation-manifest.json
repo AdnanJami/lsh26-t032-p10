@@ -16,19 +16,19 @@
   "requirements": {
     "R1": {
       "status": "complete",
-      "evidence": "Page, route, feature or source-file path"
+      "evidence": "Upload a JSON dataset via the 'Upload JSON' button then choose case in index.html / https://adnanjami.github.io/lsh26-t032-p10/"
     },
     "R2": {
       "status": "complete",
-      "evidence": "Page, route, feature or source-file path"
+      "evidence": "Check line graph on index.html / https://adnanjami.github.io/lsh26-t032-p10/"
     },
     "R3": {
-      "status": "partial",
-      "evidence": "Explain what works and what remains"
+      "status": "complete",
+      "evidence": "Enter date in calculator of index.html / https://adnanjami.github.io/lsh26-t032-p10/"
     },
     "R4": {
-      "status": "not_attempted",
-      "evidence": "Not attempted"
+      "status": "complete",
+      "evidence": "Check habit comparison section in index.html / https://adnanjami.github.io/lsh26-t032-p10/"
     }
   },
   "team_members": [
@@ -37,22 +37,22 @@
       "github_username": "TrulyFalse",
       "major_contribution": "Problem 10 entirely",
       "evidence_paths_or_commits": [
-        "/",
+        "/ [root directory]",
         "e4c41a0f31cb7811bd82f3ad76a170792a5540a9"
       ]
     }
   ],
   "major_design_decisions": [
-    "Decision and short reason"
+    "Static website, as each family simply needs a tool that calculates based on their data. Personal electricity-consumption data can be provided as JSON."
   ],
   "known_limitations": [
-    "Known limitation or unfinished behaviour"
+    "No backend support to store history into profiles, no manual input method."
   ],
   "ai_tools_used": [
     {
       "tool": "Gemini",
-      "used_for": "What the tool helped with",
-      "how_output_was_verified": "How the team checked the result"
+      "used_for": "Prototyping",
+      "how_output_was_verified": "Manual Calculation and testing via inputs"
     }
   ],
   "licenses_file": "LICENSES.md",
